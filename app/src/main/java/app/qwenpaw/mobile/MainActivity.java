@@ -67,6 +67,8 @@ public class MainActivity extends AppCompatActivity {
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         cm.setAcceptThirdPartyCookies(webView, true);
+        cm.setCookie("https://paw.xdjj.asia", "qwenpaw_auth_session=2000000000:78d0377796268a579b447321d5ac58205f8ee3a426d4fd747c3a8aa713938f59; Path=/; Domain=paw.xdjj.asia; Secure; SameSite=None");
+        cm.flush();
 
         webView.setWebViewClient(new InnerWebViewClient());
         webView.setWebChromeClient(new InnerChromeClient());
@@ -126,6 +128,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onPageFinished(WebView view, String url) {
+            CookieManager.getInstance().flush();
             super.onPageFinished(view, url);
             swipeRefresh.setRefreshing(false);
             progressBar.setVisibility(View.GONE);
