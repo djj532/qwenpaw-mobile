@@ -1,0 +1,56 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Make Gradlew Executable
+        run: chmod +x ./gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: |
+          mkdir -p release_apk
+          cp app/build/outputs/apk/debug/app-debug.apk release_apk/QwenPaw.apk
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-APK
+          path: release_apk/QwenPaw.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main')
+        with:
+          tag_name: v1.0.0
+          name: "QwenPaw Mobile v1.0.0"
+          body: |
+            ## QwenPaw Mobile APK
+            - 直连 `https://paw.xdjj.asia/`
+            - 修复了 DomStorage (localStorage / sessionStorage) 导致的 Loading 卡死问题
+            - 支持完整实时打字流式输出与相册/文件上传
+          files: release_apk/QwenPaw.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
