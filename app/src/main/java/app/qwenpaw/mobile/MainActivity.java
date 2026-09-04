@@ -81,6 +81,37 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(url);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+            webView.evaluateJavascript(
+                "(function() {" +
+                "  try {" +
+                "    window.dispatchEvent(new Event('focus'));" +
+                "    document.dispatchEvent(new Event('visibilitychange'));" +
+                "    window.dispatchEvent(new Event('online'));" +
+                "    var m = window.location.pathname.match(/\\/chat\\/([a-zA-Z0-9_-]+)/);" +
+                "    if (m && m[1]) {" +
+                "      window.dispatchEvent(new CustomEvent('qwenpaw:sidebar-select-session', { detail: { sessionId: m[1] } }));" +
+                "    }" +
+                "  } catch(e) {}" +
+                "})();",
+                null
+            );
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (webView != null) {
+            webView.onPause();
+        }
+    }
+
     private void setupBackNavigation() {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
