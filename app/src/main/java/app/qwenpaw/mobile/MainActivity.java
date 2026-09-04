@@ -3,6 +3,11 @@ package app.qwenpaw.mobile;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.util.Log;
+
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
@@ -39,6 +44,8 @@ public class MainActivity extends AppCompatActivity {
 
         setupWebView();
         setupBackNavigation();
+        startKeepAliveService();
+        requestNotificationPermission();
 
         if (savedInstanceState == null) {
             loadUrl(TARGET_URL);
@@ -202,6 +209,27 @@ public class MainActivity extends AppCompatActivity {
                 return false;
             }
             return true;
+        }
+    }
+
+    private void startKeepAliveService() {
+        try {
+            Intent serviceIntent = new Intent(this, QwenPawForegroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+        } catch (Exception e) {
+            Log.e("MainActivity", "Failed to start keep-alive service", e);
+        }
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+            }
         }
     }
 }
