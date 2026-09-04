@@ -16,14 +16,12 @@ import android.widget.ProgressBar;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TARGET_URL = "https://paw.xdjj.asia/";
     private static final int FILE_CHOOSER_REQUEST = 1001;
 
     private WebView webView;
-    private SwipeRefreshLayout swipeRefresh;
     private ProgressBar progressBar;
     private View errorView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -34,12 +32,10 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         webView = findViewById(R.id.webView);
-        swipeRefresh = findViewById(R.id.swipeRefresh);
         progressBar = findViewById(R.id.progressBar);
         errorView = findViewById(R.id.errorView);
 
         findViewById(R.id.retryButton).setOnClickListener(v -> loadUrl(TARGET_URL));
-        swipeRefresh.setOnRefreshListener(() -> webView.reload());
 
         setupWebView();
         setupBackNavigation();
@@ -52,6 +48,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setupWebView() {
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -63,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
         s.setLoadWithOverviewMode(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
+
         String defaultUa = s.getUserAgentString();
         s.setUserAgentString(defaultUa + " QwenPawMobileApp/861129");
 
@@ -89,7 +88,8 @@ public class MainActivity extends AppCompatActivity {
                 if (webView != null && webView.canGoBack()) {
                     webView.goBack();
                 } else {
-                    finish();
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
                 }
             }
         });
@@ -132,14 +132,12 @@ public class MainActivity extends AppCompatActivity {
         public void onPageFinished(WebView view, String url) {
             CookieManager.getInstance().flush();
             super.onPageFinished(view, url);
-            swipeRefresh.setRefreshing(false);
             progressBar.setVisibility(View.GONE);
         }
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
             if (request.isForMainFrame()) {
-                swipeRefresh.setRefreshing(false);
                 progressBar.setVisibility(View.GONE);
                 webView.setVisibility(View.GONE);
                 errorView.setVisibility(View.VISIBLE);
@@ -168,11 +166,11 @@ public class MainActivity extends AppCompatActivity {
             Intent intent = fileChooserParams.createIntent();
             try {
                 startActivityForResult(intent, FILE_CHOOSER_REQUEST);
-                return true;
             } catch (Exception e) {
                 MainActivity.this.filePathCallback = null;
                 return false;
             }
+            return true;
         }
     }
 }
