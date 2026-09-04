@@ -63,6 +63,8 @@ public class MainActivity extends AppCompatActivity {
         s.setLoadWithOverviewMode(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        String defaultUa = s.getUserAgentString();
+        s.setUserAgentString(defaultUa + " QwenPawMobileApp/861129");
 
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);

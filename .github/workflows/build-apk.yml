@@ -44,8 +44,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/heads/main')
         with:
-          tag_name: v1.0.1
-          name: "QwenPaw Mobile v1.0.1"
+          tag_name: v1.0.2
+          name: "QwenPaw Mobile v1.0.2"
           body: |
             ## QwenPaw Mobile APK
             - 直连 `https://paw.xdjj.asia/`
