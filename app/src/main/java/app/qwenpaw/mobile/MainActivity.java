@@ -10,12 +10,16 @@ import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
 import android.widget.Toast;
 import android.Manifest;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.util.Log;
+import android.util.Base64;
+import android.content.ContentValues;
+import android.provider.MediaStore;
+import android.media.MediaScannerConnection;
 
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -27,6 +31,10 @@ import android.widget.ProgressBar;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TARGET_URL = "https://paw.xdjj.asia/";
@@ -60,6 +68,51 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    public class AndroidBridge {
+        @JavascriptInterface
+        public void saveBlob(String base64Data, String fileName, String mimeType) {
+            runOnUiThread(() -> {
+                try {
+                    String base64 = base64Data.contains(",") ? base64Data.substring(base64Data.indexOf(",") + 1) : base64Data;
+                    byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+                    String safeName = (fileName != null && !fileName.trim().isEmpty() && !fileName.equals("download")) ? fileName : "产物_" + System.currentTimeMillis() + ".bin";
+                    saveFileToDownloads(bytes, safeName, mimeType);
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "保存文件失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+    }
+
+    private void saveFileToDownloads(byte[] bytes, String fileName, String mimeType) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, (mimeType != null && !mimeType.isEmpty()) ? mimeType : "application/octet-stream");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                        if (os != null) os.write(bytes);
+                    }
+                    Toast.makeText(this, "文件已成功保存到【下载】目录:\n" + fileName, Toast.LENGTH_LONG).show();
+                }
+            } else {
+                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!dir.exists()) dir.mkdirs();
+                File file = new File(dir, fileName);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(bytes);
+                }
+                MediaScannerConnection.scanFile(this, new String[]{file.getAbsolutePath()}, null, null);
+                Toast.makeText(this, "文件已成功保存到【下载】目录:\n" + fileName, Toast.LENGTH_LONG).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "写入存储失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void setupWebView() {
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
@@ -84,12 +137,40 @@ public class MainActivity extends AppCompatActivity {
         cm.setCookie("https://paw.xdjj.asia", "qwenpaw_auth_session=2000000000:78d0377796268a579b447321d5ac58205f8ee3a426d4fd747c3a8aa713938f59; Path=/; Domain=paw.xdjj.asia; Secure; SameSite=None");
         cm.flush();
 
+        webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
         webView.setWebViewClient(new InnerWebViewClient());
         webView.setWebChromeClient(new InnerChromeClient());
 
         webView.setDownloadListener(new DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
+                if (url != null && url.startsWith("blob:")) {
+                    String guessName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    String js = "(function() {" +
+                        "  try {" +
+                        "    var xhr = new XMLHttpRequest();" +
+                        "    xhr.open('GET', '" + url + "', true);" +
+                        "    xhr.responseType = 'blob';" +
+                        "    xhr.onload = function() {" +
+                        "      if (this.status === 200) {" +
+                        "        var r = new FileReader();" +
+                        "        r.onloadend = function() {" +
+                        "          var b64 = r.result;" +
+                        "          var mime = (b64.split(';')[0] || '').replace('data:', '');" +
+                        "          if (window.AndroidBridge) {" +
+                        "            window.AndroidBridge.saveBlob(b64, '" + guessName + "', mime);" +
+                        "          }" +
+                        "        };" +
+                        "        r.readAsDataURL(this.response);" +
+                        "      }" +
+                        "    };" +
+                        "    xhr.send();" +
+                        "  } catch(e) {}" +
+                        "})();";
+                    webView.evaluateJavascript(js, null);
+                    return;
+                }
+
                 try {
                     DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
                     String cookies = CookieManager.getInstance().getCookie(url);
@@ -105,15 +186,10 @@ public class MainActivity extends AppCompatActivity {
                     DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                     if (dm != null) {
                         dm.enqueue(request);
-                        Toast.makeText(MainActivity.this, "正在下载: " + fileName, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, "开始下载: " + fileName, Toast.LENGTH_SHORT).show();
                     }
-                } catch (Exception e) {
-                    try {
-                        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                        startActivity(i);
-                    } catch (Exception ex) {
-                        Toast.makeText(MainActivity.this, "下载调用失败: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
-                    }
+                } catch (Exception ex) {
+                    Toast.makeText(MainActivity.this, "下载失败: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -169,6 +245,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -195,11 +272,8 @@ public class MainActivity extends AppCompatActivity {
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String url = request.getUrl().toString();
             if (url.contains("/api/workspace/file-download") || url.contains("/api/artifacts/download") || url.contains("/file-download")) {
-                try {
-                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    startActivity(i);
-                    return true;
-                } catch (Exception ignored) {}
+                view.loadUrl(url);
+                return true;
             }
             if (url.startsWith("https://paw.xdjj.asia")) {
                 return false;
