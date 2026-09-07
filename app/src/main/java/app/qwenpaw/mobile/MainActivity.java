@@ -4,6 +4,11 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
+import android.os.Environment;
+import android.app.DownloadManager;
+import android.webkit.DownloadListener;
+import android.webkit.URLUtil;
+import android.widget.Toast;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -81,6 +86,37 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebViewClient(new InnerWebViewClient());
         webView.setWebChromeClient(new InnerChromeClient());
+
+        webView.setDownloadListener(new DownloadListener() {
+            @Override
+            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
+                try {
+                    DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                    String cookies = CookieManager.getInstance().getCookie(url);
+                    if (cookies != null) {
+                        request.addRequestHeader("Cookie", cookies);
+                    }
+                    request.addRequestHeader("User-Agent", userAgent != null ? userAgent : s.getUserAgentString());
+                    String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    request.setTitle(fileName);
+                    request.setDescription("QwenPaw 产物文件下载");
+                    request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+                    DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    if (dm != null) {
+                        dm.enqueue(request);
+                        Toast.makeText(MainActivity.this, "正在下载: " + fileName, Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        startActivity(i);
+                    } catch (Exception ex) {
+                        Toast.makeText(MainActivity.this, "下载调用失败: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                }
+            }
+        });
     }
 
     private void loadUrl(String url) {
@@ -158,6 +194,13 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String url = request.getUrl().toString();
+            if (url.contains("/api/workspace/file-download") || url.contains("/api/artifacts/download") || url.contains("/file-download")) {
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    startActivity(i);
+                    return true;
+                } catch (Exception ignored) {}
+            }
             if (url.startsWith("https://paw.xdjj.asia")) {
                 return false;
             }
