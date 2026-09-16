@@ -44,6 +44,8 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     private View errorView;
     private ValueCallback<Uri[]> filePathCallback;
+    private long pausedAt = 0; // v1.0.8: 记录进入后台的时刻
+    private static final long RESUME_HEAL_THRESHOLD_MS = 30 * 1000L; // 后台超过30秒才触发自愈
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,12 +62,31 @@ public class MainActivity extends AppCompatActivity {
         setupBackNavigation();
         startKeepAliveService();
         requestNotificationPermission();
+        prewarmConnection(); // v1.0.8: 启动预热，DNS+TLS 提前握手
 
         if (savedInstanceState == null) {
             loadUrl(TARGET_URL);
         } else {
             webView.restoreState(savedInstanceState);
         }
+    }
+
+    /**
+     * v1.0.8: 后台线程预建连接 —— DNS 解析 + TLS 握手先行，
+     * loadUrl 时直接复用已建好的连接，冷启动更快。
+     */
+    private void prewarmConnection() {
+        new Thread(() -> {
+            try {
+                java.net.URL url = new java.net.URL(TARGET_URL);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(3000);
+                conn.setReadTimeout(100);
+                conn.setRequestMethod("HEAD");
+                try { conn.getResponseCode(); } catch (java.net.SocketTimeoutException ignored) {}
+                conn.disconnect();
+            } catch (Exception ignored) {}
+        }, "qp-prewarm").start();
     }
 
     public class AndroidBridge {
@@ -207,21 +228,40 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
-            webView.evaluateJavascript(
-                "(function() {" +
-                "  try {" +
-                "    window.dispatchEvent(new Event('focus'));" +
-                "    document.dispatchEvent(new Event('visibilitychange'));" +
-                "    window.dispatchEvent(new Event('online'));" +
-                "    var m = window.location.pathname.match(/\\/chat\\/([a-zA-Z0-9_-]+)/);" +
-                "    if (m && m[1]) {" +
-                "      window.dispatchEvent(new CustomEvent('qwenpaw:sidebar-select-session', { detail: { sessionId: m[1] } }));" +
-                "    }" +
-                "  } catch(e) {}" +
-                "})();",
-                null
-            );
+
+            // v1.0.8: 后台切回自愈 —— 只有离开超过 30 秒才触发数据刷新
+            // （避免频繁切换打扰；短时切换由页面自身的轮询自然恢复）
+            long bgMillis = pausedAt > 0 ? System.currentTimeMillis() - pausedAt : 0;
+            if (bgMillis > RESUME_HEAL_THRESHOLD_MS) {
+                // 延迟注入：切回瞬间 WebView JS 引擎刚解冻，
+                // 立即执行会因 React 监听器未就绪而丢失事件
+                webView.postDelayed(this::injectResumeHeal, 200);
+            }
         }
+    }
+
+    private void injectResumeHeal() {
+        if (webView == null || pausedAt <= 0) return;
+        pausedAt = 0; // 消费掉，防止重复触发
+        webView.evaluateJavascript(
+            "(function() {" +
+            "  try {" +
+            "    window.dispatchEvent(new Event('focus'));" +
+            "    document.dispatchEvent(new Event('visibilitychange'));" +
+            "    window.dispatchEvent(new Event('online'));" +
+            // 检查用户是否正在交互（有文本选区/正在输入），有则跳过本次刷新避免打断
+            "    var sel = window.getSelection && window.getSelection();" +
+            "    var active = document.activeElement;" +
+            "    var isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);" +
+            "    if ((sel && sel.toString().length > 0) || isTyping) { return; }" +
+            "    var m = window.location.pathname.match(/\\/chat\\/([a-zA-Z0-9_-]+)/);" +
+            "    if (m && m[1]) {" +
+            "      window.dispatchEvent(new CustomEvent('qwenpaw:sidebar-select-session', { detail: { sessionId: m[1] } }));" +
+            "    }" +
+            "  } catch(e) {}" +
+            "})();",
+            null
+        );
     }
 
     @Override
@@ -229,6 +269,7 @@ public class MainActivity extends AppCompatActivity {
         super.onPause();
         if (webView != null) {
             webView.onPause();
+            pausedAt = System.currentTimeMillis(); // v1.0.8: 记录进入后台的时间戳
         }
     }
 
